@@ -1,0 +1,19 @@
+# ===================================
+# StockSage - Unified Requirements
+# ===================================
+# Pulls in dependencies from both upstream subprojects,
+# then adds top-level integration-only packages.
+#
+# NOTE: Some subproject deps (e.g. longbridge) may need Rust toolchain.
+# If install fails, install subproject deps with --no-deps or skip optional packages:
+#   pip install -r daily_stock_analysis/requirements.txt || true
+#   pip install -r FinGenius/requirements.txt || true
+#   pip install pyyaml jinja2
+
+-r daily_stock_analysis/requirements.txt
+-r FinGenius/requirements.txt
+
+# Top-level integration dependencies (not in either subproject)
+pyyaml>=6.0
+jinja2>=3.1
+requests>=2.28

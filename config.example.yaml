@@ -1,0 +1,211 @@
+# StockSage 统一配置文件
+# 复制此文件为 config.yaml 并填入实际值:
+#   cp config.example.yaml config.yaml
+#
+# 所有空字符串 "" 表示未配置，系统会跳过该功能。
+# 仅需配置你使用的 LLM 和通知渠道，其余保持默认即可。
+
+# ============================================================
+# 自选股配置
+# ============================================================
+stocks:
+  list:                            # 股票代码列表（A股/港股/美股）
+    - "600519"                     # 贵州茅台
+    # - "000001"                   # 平安银行
+    # - "hk00700"                  # 腾讯控股
+    # - "AAPL"                     # Apple
+  market_review_enabled: true      # 是否生成大盘复盘
+  market_review_region: "cn"       # 大盘区域: cn / us / hk
+
+# ============================================================
+# AI 大模型配置
+# ============================================================
+llm:
+  # 主模型（用于 daily_stock_analysis）
+  # 支持: gemini / openai / deepseek / anthropic / aihubmix / litellm
+  provider: "gemini"
+  model: "gemini-2.5-flash"
+  api_key: ""
+  base_url: ""                     # OpenAI 兼容 API 时需要填写
+  temperature: ""                  # LLM 温度参数（可选）
+  vision_model: ""                 # 视觉模型（可选）
+  fallback_models: ""              # 备选模型（逗号分隔，LiteLLM 模式下生效）
+  # 多 API Key 支持（逗号分隔，自动负载均衡）
+  # gemini_api_keys: ""
+  # openai_api_keys: ""
+  # anthropic_api_keys: ""
+  # deepseek_api_keys: ""
+
+  # FinGenius 专用模型（可选，不填则使用主模型配置）
+  # FinGenius 使用 OpenAI 兼容 API 格式
+  fingenius:
+    api_type: "openai"             # openai / azure / ollama
+    model: "gpt-4o"
+    base_url: "https://api.openai.com/v1"
+    api_key: ""
+    max_tokens: 8192
+    temperature: 0.0
+    # api_version: ""              # Azure OpenAI 需要填写
+
+  # 额外模型密钥（可选，用于多模型备选）
+  # gemini:
+  #   api_key: ""
+  # deepseek:
+  #   api_key: ""
+  # anthropic:
+  #   api_key: ""
+  #   model: "claude-3-5-sonnet-20241022"
+
+# ============================================================
+# 数据源
+# ============================================================
+data_sources:
+  tushare_token: ""                # Tushare Pro Token（可选，提供更多数据）
+  longbridge:                      # 长桥 OpenAPI（可选，美股/港股行情补充）
+    app_key: ""
+    app_secret: ""
+    access_token: ""
+    region: ""                     # cn / hk / us / sg
+
+# ============================================================
+# 搜索引擎
+# ============================================================
+search:
+  bocha_api_keys: ""               # Bocha API Keys
+  tavily_api_keys: ""              # Tavily API Keys
+  serpapi_api_keys: ""             # SerpAPI Keys
+  minimax_api_keys: ""             # MiniMax API Keys
+  brave_api_keys: ""               # Brave Search API Keys
+  searxng_base_urls: ""            # SearXNG 实例 URL（自建）
+  fingenius_engine: "Bing"         # FinGenius 搜索引擎: Google / Baidu / Bing / DuckDuckGo
+
+# ============================================================
+# 投资策略
+# ============================================================
+strategy:
+  skills: []                         # 激活的策略技能: ["bull_trend", "volume_breakout", "shrink_pullback", ...]
+                                     # 留空 = 使用默认趋势交易基线策略
+                                     # ["all"] = 启用全部内置策略
+                                     # 可用策略: bull_trend, volume_breakout, shrink_pullback, dragon_head,
+                                     #   box_oscillation, emotion_cycle, chan_theory, one_yang_three_yin,
+                                     #   bottom_volume, ma_golden_cross, wave_theory
+  skill_dir: ""                      # 自定义策略 YAML 目录路径（留空使用内置策略）
+  routing: "auto"                    # auto = 根据市场状态自动匹配策略 / manual = 仅使用指定策略
+
+# ============================================================
+# FinGenius 博弈分析参数
+# ============================================================
+fingenius:
+  max_steps: 3                     # 每个智能体最大分析步数
+  debate_rounds: 1                 # 专家辩论轮数
+  # 搜索子选项（可选，覆盖 FinGenius 默认值）
+  # search:
+  #   fallback_engines: ["Baidu", "DuckDuckGo"]
+  #   lang: "zh-CN"
+  #   country: "CN"
+  #   max_retries: 3
+  #   retry_delay: 1.0
+
+# ============================================================
+# 通知渠道（可同时配置多个，全部推送）
+# ============================================================
+notifications:
+  # WxPusher 微信推送
+  wxpusher:
+    app_token: ""
+    uids: []                       # 接收者 UID 列表
+    topic_ids: []                  # 主题 ID 列表（群发）
+    content_type: 3                # 1=文本, 2=HTML, 3=Markdown
+
+  # 邮件 SMTP
+  email:
+    sender: ""                     # 发件人地址
+    password: ""                   # SMTP 密码/授权码
+    receivers: ""                  # 收件人，多个用逗号分隔
+    sender_name: "StockSage 股票分析助手"
+    smtp_server: ""                # SMTP 服务器（如 smtp.gmail.com），留空则自动检测
+    smtp_port: ""                  # SMTP 端口（如 465），留空则默认
+
+  # PushPlus 推送
+  pushplus:
+    token: ""
+    topic: ""                      # 群发主题 ID（可选）
+
+  # 企业微信 Webhook
+  wechat:
+    webhook_url: ""
+    msg_type: "markdown"           # markdown / text
+
+  # 飞书 Webhook
+  feishu:
+    webhook_url: ""
+    webhook_secret: ""             # 签名校验密钥（可选）
+    webhook_keyword: ""            # 关键字过滤（可选）
+
+  # 飞书云文档
+  feishu_doc:
+    app_id: ""
+    app_secret: ""
+    folder_token: ""
+
+  # Telegram
+  telegram:
+    bot_token: ""
+    chat_id: ""
+    message_thread_id: ""          # 话题消息 ID（可选）
+
+  # Pushover
+  pushover:
+    user_key: ""
+    api_token: ""
+
+  # Discord
+  discord:
+    webhook_url: ""
+    bot_token: ""
+    main_channel_id: ""
+
+  # 自定义 Webhook（钉钉、Bark、自建服务等）
+  custom_webhook:
+    urls: ""                       # 多个 URL 用逗号分隔
+    bearer_token: ""
+    verify_ssl: true               # 是否验证 SSL 证书
+
+  # AstrBot
+  astrbot:
+    url: ""
+    token: ""
+
+  # Server酱3
+  serverchan3:
+    sendkey: ""
+
+  # Slack
+  slack:
+    webhook_url: ""
+    bot_token: ""
+    channel_id: ""
+
+# ============================================================
+# 报告配置
+# ============================================================
+report:
+  type: "simple"                   # simple / brief / full
+  single_stock_notify: false       # 每只股票单独推送
+  output_dir: "reports"            # 报告输出目录
+  save_local: true                 # 是否保存本地副本
+  language: ""                     # 报告语言: zh / en（留空为默认中文）
+  summary_only: false              # 仅输出摘要
+  # markdown_to_image_channels: "" # 需要将 Markdown 转图片的通知渠道
+
+# ============================================================
+# 运行配置
+# ============================================================
+runtime:
+  max_workers: 1                   # 最大并发分析线程数
+  analysis_delay: 0                # 分析间隔（秒）
+  log_level: "INFO"                # 日志级别: DEBUG / INFO / WARNING / ERROR
+  trading_day_check: true          # 是否检查交易日（非交易日跳过分析）
+  force_run: false                 # 强制运行（跳过交易日检查）
+  http_proxy: ""                   # HTTP 代理（如 http://127.0.0.1:7890）
+  https_proxy: ""                  # HTTPS 代理

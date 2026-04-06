@@ -1,0 +1,31 @@
+# Secrets - never commit
+config.yaml
+.env
+.env.*
+
+# Generated at runtime
+FinGenius/config/config.toml
+
+# Output directories
+reports/
+report/
+logs/
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
