@@ -95,6 +95,27 @@ class TestExpertResultsLookup:
         assert ctx["fg_expert_results"]["sentiment"] == "TOP_LEVEL"
 
 
+class TestDashboardFields:
+    def test_market_snapshot_and_decision_type(
+        self, merger: ReportMerger, sample_dsa_result: SimpleNamespace,
+    ) -> None:
+        ctx = merger.merge_single(sample_dsa_result, None, "600519", "贵州茅台")
+        assert ctx["dsa_market_snapshot"] is not None
+        assert ctx["dsa_market_snapshot"]["close"] == 1800.0
+        assert ctx["dsa_decision_type"] == "buy"
+
+    def test_batch_renders_dashboard_sections(
+        self, merger: ReportMerger, sample_dsa_result: SimpleNamespace,
+    ) -> None:
+        rendered = merger.merge_batch([sample_dsa_result], {})
+        assert "📰 重要信息速览" in rendered
+        assert "📌 核心结论" in rendered
+        assert "📈 当日行情" in rendered
+        assert "📊 数据透视" in rendered
+        assert "🎯 作战计划" in rendered
+        assert "1795元" in rendered  # ideal_buy from sniper_points
+
+
 class TestConsensus:
     def test_consensus_bullish(
         self, merger: ReportMerger, sample_dsa_result: SimpleNamespace, sample_fg_result: dict,

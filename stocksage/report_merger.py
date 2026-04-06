@@ -105,6 +105,8 @@ class ReportMerger:
             "dsa_current_price": None,
             "dsa_change_pct": None,
             "dsa_dashboard": None,
+            "dsa_market_snapshot": None,
+            "dsa_decision_type": "",
             # FinGenius fields
             "fg_vote_bullish": 0,
             "fg_vote_bearish": 0,
@@ -144,6 +146,8 @@ class ReportMerger:
             ctx["dsa_current_price"] = getattr(dsa_result, "current_price", None)
             ctx["dsa_change_pct"] = getattr(dsa_result, "change_pct", None)
             ctx["dsa_dashboard"] = getattr(dsa_result, "dashboard", None)
+            ctx["dsa_market_snapshot"] = getattr(dsa_result, "market_snapshot", None)
+            ctx["dsa_decision_type"] = getattr(dsa_result, "decision_type", "") or ""
             logger.debug("DSA data loaded for %s", stock_code)
 
         # --- Populate FinGenius fields ---
