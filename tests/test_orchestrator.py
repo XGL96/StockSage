@@ -97,24 +97,41 @@ class TestRunAllFg:
         assert result == {}
 
     @patch("stocksage.orchestrator._fg_worker_process")
-    def test_single_stock_runs_in_process(self, mock_worker, tmp_path):
-        """Single stock should call worker directly (no ProcessPoolExecutor)."""
-        mock_worker.return_value = ("600519", _fake_fg_result("600519"))
-        orch = _make_orchestrator(tmp_path)
+    @patch("stocksage.orchestrator.concurrent.futures.ProcessPoolExecutor")
+    def test_single_stock_uses_process_pool(self, mock_pool_cls, mock_worker, tmp_path):
+        """Single stock should also use ProcessPoolExecutor (not in-process)."""
+        mock_executor = MagicMock()
+        mock_pool_cls.return_value.__enter__ = MagicMock(return_value=mock_executor)
+        mock_pool_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = orch._run_all_fg(["600519"], {"max_steps": 3})
+        future = MagicMock()
+        future.result.return_value = ("600519", _fake_fg_result("600519"))
+        mock_executor.submit.side_effect = [future]
 
-        mock_worker.assert_called_once()
+        with patch("stocksage.orchestrator.concurrent.futures.as_completed", return_value=[future]):
+            orch = _make_orchestrator(tmp_path)
+            result = orch._run_all_fg(["600519"], {"max_steps": 3})
+
+        assert mock_pool_cls.called
         assert "600519" in result
         assert result["600519"]["stock_code"] == "600519"
 
     @patch("stocksage.orchestrator._fg_worker_process")
-    def test_single_stock_error_handling(self, mock_worker, tmp_path):
+    @patch("stocksage.orchestrator.concurrent.futures.ProcessPoolExecutor")
+    def test_single_stock_error_handling(self, mock_pool_cls, mock_worker, tmp_path):
         """Single stock error should not crash, returns empty dict."""
-        mock_worker.return_value = ("600519", {"error": "test error"})
-        orch = _make_orchestrator(tmp_path)
+        mock_executor = MagicMock()
+        mock_pool_cls.return_value.__enter__ = MagicMock(return_value=mock_executor)
+        mock_pool_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        result = orch._run_all_fg(["600519"], {"max_steps": 3})
+        future = MagicMock()
+        future.result.return_value = ("600519", {"error": "test error"})
+        mock_executor.submit.side_effect = [future]
+
+        with patch("stocksage.orchestrator.concurrent.futures.as_completed", return_value=[future]):
+            orch = _make_orchestrator(tmp_path)
+            result = orch._run_all_fg(["600519"], {"max_steps": 3})
+
         assert "600519" not in result
 
     @patch("stocksage.orchestrator._fg_worker_process")

@@ -269,24 +269,12 @@ class StockSageOrchestrator:
 
         results: dict[str, dict[str, Any]] = {}
 
-        # Single stock: run in-process to avoid multiprocessing overhead
-        if len(stock_codes) == 1:
-            code = stock_codes[0]
-            fg_code = self._strip_market_prefix(code)
-            logger.info("FinGenius 分析 (单股直接执行): %s", code)
-            orig, result = _fg_worker_process(
-                (code, fg_code, params, str(self._project_root))
-            )
-            if result and "error" not in result:
-                results[orig] = result
-                logger.info("FinGenius %s 分析完成", orig)
-            else:
-                error_msg = result.get("error", "unknown") if result else "no result"
-                logger.warning("FinGenius %s 分析失败: %s", orig, error_msg)
-            return results
-
-        # Multiple stocks: use ProcessPoolExecutor
-        max_workers = min(len(stock_codes), 4)
+        # Always use ProcessPoolExecutor — even for single stock.
+        # Running _fg_worker_process in-process would corrupt the parent's
+        # sys.path and sys.modules (it evicts DSA's src.* and swaps paths),
+        # breaking subsequent DSA imports (e.g., notification sending).
+        configured_workers = self._bridge.raw.get("runtime", {}).get("max_workers", 5)
+        max_workers = min(len(stock_codes), configured_workers)
         worker_args = [
             (code, self._strip_market_prefix(code), params, str(self._project_root))
             for code in stock_codes
