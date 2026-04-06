@@ -75,10 +75,14 @@ class ResultSummarizer:
             Dict mapping expert key -> summarized conclusion string.
         """
         expert_keys = ["sentiment", "risk", "hot_money", "technical", "chip_analysis", "big_deal"]
+        # Expert data may be nested under "research_results" key
+        research = fg_result.get("research_results", {})
+        if not isinstance(research, dict):
+            research = {}
         tasks = []
         valid_keys = []
         for key in expert_keys:
-            raw = fg_result.get(key)
+            raw = fg_result.get(key) or research.get(key)
             if raw and isinstance(raw, str) and len(raw.strip()) > 20:
                 tasks.append(self._summarize_single_expert(key, raw, stock_code))
                 valid_keys.append(key)

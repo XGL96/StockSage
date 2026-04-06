@@ -161,9 +161,14 @@ class ReportMerger:
             ctx["fg_battle_highlights"] = battle.get("battle_highlights", [])
             ctx["fg_debate_history"] = battle.get("debate_history", [])
             # Individual expert results (sentiment, risk, hot_money, etc.)
+            # Expert data may be nested under "research_results" key
+            research = fg_result.get("research_results", {})
+            if not isinstance(research, dict):
+                research = {}
             for expert_key in ("sentiment", "risk", "hot_money", "technical", "chip_analysis", "big_deal"):
-                if expert_key in fg_result:
-                    ctx["fg_expert_results"][expert_key] = fg_result[expert_key]
+                raw = fg_result.get(expert_key) or research.get(expert_key)
+                if raw:
+                    ctx["fg_expert_results"][expert_key] = raw
             # LLM-summarized fields (populated by ResultSummarizer.process_all before merge)
             raw_summaries = fg_result.get("_expert_summaries", {})
             ctx["fg_expert_summaries"] = {

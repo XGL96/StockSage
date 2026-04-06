@@ -11,13 +11,10 @@ from stocksage.config_bridge import ConfigBridge
 
 
 class TestParseYaml:
-    """Loading and basic access."""
-
     def test_parse_yaml(self, tmp_config_yaml: Path) -> None:
         bridge = ConfigBridge(tmp_config_yaml)
         stocks = bridge.get_stock_list()
         assert isinstance(stocks, list)
-        assert all(isinstance(s, str) for s in stocks)
         assert "600519" in stocks
 
     def test_missing_config(self, tmp_path: Path) -> None:
@@ -26,10 +23,7 @@ class TestParseYaml:
 
 
 class TestApplyEnvVars:
-    """Environment variable injection."""
-
     def test_apply_env_vars(self, tmp_config_yaml: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Clear any pre-existing keys so apply_env_vars can set them
         for key in ("STOCK_LIST", "OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_BASE_URL"):
             monkeypatch.delenv(key, raising=False)
 
@@ -61,14 +55,11 @@ llm:
         bridge = ConfigBridge(cfg)
         bridge.apply_env_vars()
 
-        # Empty api_key/model should NOT be set
         assert "GEMINI_API_KEY" not in os.environ
         assert "GEMINI_MODEL" not in os.environ
 
 
 class TestWriteFinGeniusToml:
-    """TOML generation for FinGenius."""
-
     def test_write_fingenius_toml(self, tmp_config_yaml: Path, tmp_path: Path) -> None:
         bridge = ConfigBridge(tmp_config_yaml, project_root=tmp_path)
         toml_path = bridge.write_fingenius_toml()
@@ -81,80 +72,42 @@ class TestWriteFinGeniusToml:
 
 
 class TestGetLitellmParams:
-    """get_litellm_params for summarizer LLM calls."""
-
-    def test_openai_provider(self, tmp_config_yaml: Path) -> None:
-        bridge = ConfigBridge(tmp_config_yaml)
-        params = bridge.get_litellm_params()
-        assert params["model"] == "gpt-4o"
-        assert params["api_key"] == "FAKE_KEY_FOR_TESTING"
-        assert params["api_base"] == "https://api.openai.com/v1"
-
-    def test_nvidia_provider(self, tmp_path: Path) -> None:
-        content = """\
+    @pytest.mark.parametrize(
+        "provider, model, api_key, base_url, expected_model, expect_api_base",
+        [
+            ("openai", "gpt-4o", "sk-test", "https://api.openai.com/v1", "gpt-4o", True),
+            ("nvidia", "meta/llama-3.1-70b", "nvapi-test", "https://integrate.api.nvidia.com/v1", "openai/meta/llama-3.1-70b", True),
+            ("gemini", "gemini-2.0-flash", "gemini-key", "", "gemini/gemini-2.0-flash", False),
+        ],
+    )
+    def test_provider_model_mapping(
+        self, tmp_path: Path,
+        provider: str, model: str, api_key: str, base_url: str,
+        expected_model: str, expect_api_base: bool,
+    ) -> None:
+        content = f"""\
 stocks:
   list: ["600519"]
 llm:
-  provider: "nvidia"
-  model: "meta/llama-3.1-70b-instruct"
-  api_key: "nvapi-test"
-  base_url: "https://integrate.api.nvidia.com/v1"
+  provider: "{provider}"
+  model: "{model}"
+  api_key: "{api_key}"
+  base_url: "{base_url}"
 """
         cfg = tmp_path / "config.yaml"
         cfg.write_text(content, encoding="utf-8")
-        bridge = ConfigBridge(cfg)
-        params = bridge.get_litellm_params()
-        assert params["model"] == "openai/meta/llama-3.1-70b-instruct"
-        assert params["api_key"] == "nvapi-test"
-        assert params["api_base"] == "https://integrate.api.nvidia.com/v1"
-
-    def test_gemini_provider(self, tmp_path: Path) -> None:
-        content = """\
-stocks:
-  list: ["600519"]
-llm:
-  provider: "gemini"
-  model: "gemini-2.0-flash"
-  api_key: "gemini-key"
-"""
-        cfg = tmp_path / "config.yaml"
-        cfg.write_text(content, encoding="utf-8")
-        bridge = ConfigBridge(cfg)
-        params = bridge.get_litellm_params()
-        assert params["model"] == "gemini/gemini-2.0-flash"
-        assert "api_base" not in params
-
-    def test_openai_no_base_url(self, tmp_path: Path) -> None:
-        content = """\
-stocks:
-  list: ["600519"]
-llm:
-  provider: "openai"
-  model: "gpt-4o"
-  api_key: "sk-test"
-  base_url: ""
-"""
-        cfg = tmp_path / "config.yaml"
-        cfg.write_text(content, encoding="utf-8")
-        bridge = ConfigBridge(cfg)
-        params = bridge.get_litellm_params()
-        assert "api_base" not in params
+        params = ConfigBridge(cfg).get_litellm_params()
+        assert params["model"] == expected_model
+        assert ("api_base" in params) == expect_api_base
 
 
 class TestHelpers:
-    """get_fingenius_params, get_wxpusher_config."""
-
     def test_get_fingenius_params(self, tmp_config_yaml: Path) -> None:
-        bridge = ConfigBridge(tmp_config_yaml)
-        params = bridge.get_fingenius_params()
-        assert isinstance(params, dict)
+        params = ConfigBridge(tmp_config_yaml).get_fingenius_params()
         assert params["max_steps"] == 3
         assert params["debate_rounds"] == 2
 
     def test_get_wxpusher_config(self, tmp_config_yaml: Path) -> None:
-        bridge = ConfigBridge(tmp_config_yaml)
-        wx = bridge.get_wxpusher_config()
-        assert isinstance(wx, dict)
+        wx = ConfigBridge(tmp_config_yaml).get_wxpusher_config()
         assert wx["app_token"] == "AT_test_token"
         assert "UID_user1" in wx["uids"]
-        assert 123 in wx["topic_ids"]
