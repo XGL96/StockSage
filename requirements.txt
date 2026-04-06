@@ -1,19 +1,43 @@
 # ===================================
 # StockSage - Unified Requirements
 # ===================================
-# Pulls in dependencies from both upstream subprojects,
-# then adds top-level integration-only packages.
-#
-# NOTE: Some subproject deps (e.g. longbridge) may need Rust toolchain.
-# If install fails, install subproject deps with --no-deps or skip optional packages:
-#   pip install -r daily_stock_analysis/requirements.txt || true
-#   pip install -r FinGenius/requirements.txt || true
-#   pip install pyyaml jinja2
+# DSA's litellm requires openai>=2.8.0, but FinGenius pins openai~=1.66.5.
+# FinGenius only uses the stable openai.OpenAI() client, which works with 2.x.
+# Strategy: install DSA first (sets openai 2.x), then FinGenius WITHOUT its
+# openai pin (--no-deps not needed; we just list FG deps explicitly).
 
+# --- DSA dependencies (sets litellm + openai>=2.8.0) ---
 -r daily_stock_analysis/requirements.txt
--r FinGenius/requirements.txt
 
-# Top-level integration dependencies (not in either subproject)
+# --- FinGenius dependencies (openai already satisfied by DSA) ---
+streamlit
+pydantic>=2.10
+aiohttp
+fastmcp
+python-dotenv
+beautifulsoup4>=4.13
+pandas>=2.2
+numpy
+matplotlib
+plotly
+nltk
+tomli
+mcp>=1.5.0
+tiktoken>=0.9.0
+tenacity>=9.0.0
+loguru>=0.7.3
+reportlab
+googlesearch-python>=1.3.0
+baidusearch>=1.0.3
+duckduckgo-search>=7.5
+efinance>=0.5.5
+akshare>=1.16
+schedule>=1.2
+uvicorn
+starlette
+rich>=13.7
+
+# --- Top-level integration dependencies ---
 pyyaml>=6.0
 jinja2>=3.1
 requests>=2.28
