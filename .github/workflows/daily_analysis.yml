@@ -26,6 +26,10 @@ on:
         default: false
         type: boolean
 
+permissions:
+  actions: write
+  contents: read
+
 concurrency:
   group: stocksage-analysis
   cancel-in-progress: true

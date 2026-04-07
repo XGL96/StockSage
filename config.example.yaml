@@ -77,7 +77,8 @@ search:
   minimax_api_keys: ""             # MiniMax API Keys
   brave_api_keys: ""               # Brave Search API Keys
   searxng_base_urls: ""            # SearXNG 实例 URL（自建）
-  fingenius_engine: "Bing"         # FinGenius 搜索引擎: Google / Baidu / Bing / DuckDuckGo
+  fingenius_engine: "DuckDuckGo"   # FinGenius 搜索引擎: DuckDuckGo / Bing / Baidu / Google
+                                   # DuckDuckGo 在 CI/云环境中最稳定，推荐作为首选
 
 # ============================================================
 # 投资策略
@@ -99,12 +100,12 @@ fingenius:
   max_steps: 3                     # 每个智能体最大分析步数
   debate_rounds: 1                 # 专家辩论轮数
   # 搜索子选项（可选，覆盖 FinGenius 默认值）
-  # search:
-  #   fallback_engines: ["Baidu", "DuckDuckGo"]
+  search:
+    fallback_engines: ["Bing", "Baidu"]  # 主引擎失败后的备选顺序
+    retry_delay: 15                      # 所有引擎全失败后等待秒数（默认 60，太长）
   #   lang: "zh-CN"
   #   country: "CN"
   #   max_retries: 3
-  #   retry_delay: 1.0
 
 # ============================================================
 # 通知渠道（可同时配置多个，全部推送）
