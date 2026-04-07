@@ -168,3 +168,5 @@ class TestSummarizeSingleExpert:
 
         prompt = mock_call.call_args[1]["messages"][0]["content"]
         assert "后续内容省略" in prompt
+        # Verify timeout is passed to LLM call
+        assert mock_call.call_args[1].get("timeout") == 60

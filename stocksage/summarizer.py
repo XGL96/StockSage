@@ -57,8 +57,12 @@ _DEBATE_SUMMARY_PROMPT = """\
 class ResultSummarizer:
     """Uses LLM to summarize raw FinGenius outputs into concise conclusions."""
 
+    # Max concurrent LLM requests to avoid API rate-limit storms.
+    _MAX_CONCURRENCY = 3
+
     def __init__(self, bridge: ConfigBridge) -> None:
         self._llm_params = bridge.get_litellm_params()
+        self._semaphore = asyncio.Semaphore(self._MAX_CONCURRENCY)
         # Suppress litellm verbose logging
         litellm.suppress_debug_info = True
 
@@ -137,12 +141,14 @@ class ResultSummarizer:
         )
 
         try:
-            response = await litellm.acompletion(
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=500,
-                temperature=0.0,
-                **self._llm_params,
-            )
+            async with self._semaphore:
+                response = await litellm.acompletion(
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=500,
+                    temperature=0.0,
+                    timeout=60,
+                    **self._llm_params,
+                )
             return (response.choices[0].message.content or "").strip()
         except Exception as e:
             logger.error("辩论摘要失败: %s", e)
@@ -215,10 +221,12 @@ class ResultSummarizer:
             raw_output=raw_output,
         )
 
-        response = await litellm.acompletion(
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
-            temperature=0.0,
-            **self._llm_params,
-        )
+        async with self._semaphore:
+            response = await litellm.acompletion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                temperature=0.0,
+                timeout=60,
+                **self._llm_params,
+            )
         return (response.choices[0].message.content or "").strip()

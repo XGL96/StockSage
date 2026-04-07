@@ -129,7 +129,11 @@ class WxPusherSender:
         logger.info("WxPusher chunked send: %d chunk(s)", total)
 
         for idx, chunk in enumerate(chunks):
-            chunk_summary = f"{summary} ({idx + 1}/{total})" if total > 1 else summary
+            if total > 1:
+                suffix = f" ({idx + 1}/{total})"
+                chunk_summary = summary[: 100 - len(suffix)] + suffix
+            else:
+                chunk_summary = summary
             if self._send_with_retry(chunk, chunk_summary):
                 success_count += 1
                 logger.info("WxPusher chunk %d/%d sent", idx + 1, total)

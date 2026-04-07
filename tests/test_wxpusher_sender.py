@@ -74,3 +74,16 @@ class TestSummaryTruncation:
         payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1]["json"]
         assert len(payload["summary"]) == 100
         assert payload["summary"] == "X" * 100
+
+    @patch("stocksage.wxpusher_sender.time.sleep")
+    @patch("stocksage.wxpusher_sender.requests.post", return_value=_ok_response())
+    def test_chunked_summary_within_100_chars(self, mock_post: MagicMock, _mock_sleep: MagicMock) -> None:
+        """Chunk suffix like ' (1/3)' must not push summary beyond 100 chars."""
+        paragraph = "A" * 4096
+        big_content = "\n\n".join([paragraph] * 13)
+        sender = _make_sender()
+        sender.send(big_content, summary="Z" * 100)
+
+        for call in mock_post.call_args_list:
+            payload = call.kwargs.get("json") or call[1]["json"]
+            assert len(payload["summary"]) <= 100

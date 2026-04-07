@@ -2,6 +2,7 @@
 """Tests for StockSageOrchestrator — FinGenius multiprocessing parallelism."""
 from __future__ import annotations
 
+import concurrent.futures
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -83,22 +84,23 @@ class TestRunAllFg:
         assert "600519" in result
         assert "000001" not in result  # error result excluded
 
+    @pytest.mark.parametrize("exc", [RuntimeError("process died"), concurrent.futures.TimeoutError()])
     @patch("stocksage.orchestrator._fg_worker_process")
     @patch("stocksage.orchestrator.concurrent.futures.ProcessPoolExecutor")
-    def test_worker_exception_does_not_crash_batch(self, mock_pool_cls: MagicMock, mock_worker: MagicMock, tmp_path: Path) -> None:
-        """Worker RuntimeError is caught; other stocks still succeed."""
+    def test_worker_failure_does_not_crash_batch(self, mock_pool_cls: MagicMock, mock_worker: MagicMock, tmp_path: Path, exc: Exception) -> None:
+        """Worker exception (RuntimeError / TimeoutError) is caught; other stocks still succeed."""
         mock_executor = MagicMock()
         mock_pool_cls.return_value.__enter__ = MagicMock(return_value=mock_executor)
         mock_pool_cls.return_value.__exit__ = MagicMock(return_value=False)
 
         future_ok = MagicMock()
         future_ok.result.return_value = ("600519", _fake_fg_result("600519"))
-        future_crash = MagicMock()
-        future_crash.result.side_effect = RuntimeError("process died")
+        future_fail = MagicMock()
+        future_fail.result.side_effect = exc
 
-        mock_executor.submit.side_effect = [future_ok, future_crash]
+        mock_executor.submit.side_effect = [future_ok, future_fail]
 
-        with patch("stocksage.orchestrator.concurrent.futures.as_completed", return_value=[future_ok, future_crash]):
+        with patch("stocksage.orchestrator.concurrent.futures.as_completed", return_value=[future_ok, future_fail]):
             orch = _make_orchestrator(tmp_path)
             result = orch._run_all_fg(["600519", "000001"], {"max_steps": 3})
 

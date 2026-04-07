@@ -202,7 +202,12 @@ report:
 # 运行配置
 # ============================================================
 runtime:
-  max_workers: 1                   # 最大并发分析线程数
+  max_workers: 1                   # FinGenius 并发 worker 数
+                                   # 瓶颈是 LLM API 速率限制而非 CPU:
+                                   #   付费 API（高配额）→ 可设 4
+                                   #   免费/低配额 API   → 建议 1-2
+                                   #   多 API key 场景   → 可适当提高
+  worker_timeout: 1800             # 单个 worker 超时（秒），默认 30 分钟
   analysis_delay: 0                # 分析间隔（秒）
   log_level: "INFO"                # 日志级别: DEBUG / INFO / WARNING / ERROR
   trading_day_check: true          # 是否检查交易日（非交易日跳过分析）

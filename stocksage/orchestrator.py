@@ -273,14 +273,21 @@ class StockSageOrchestrator:
         # Running _fg_worker_process in-process would corrupt the parent's
         # sys.path and sys.modules (it evicts DSA's src.* and swaps paths),
         # breaking subsequent DSA imports (e.g., notification sending).
-        configured_workers = self._bridge.raw.get("runtime", {}).get("max_workers", 5)
+        runtime_cfg = self._bridge.raw.get("runtime", {})
+        configured_workers = runtime_cfg.get("max_workers", 4)
         max_workers = min(len(stock_codes), configured_workers)
+        # Per-worker timeout (seconds). Default 30 min — generous enough
+        # for API rate-limit retries but prevents indefinite hangs.
+        worker_timeout: int = runtime_cfg.get("worker_timeout", 1800)
         worker_args = [
             (code, self._strip_market_prefix(code), params, str(self._project_root))
             for code in stock_codes
         ]
 
-        logger.info("FinGenius 并行分析 %d 只股票 (max_workers=%d)", len(stock_codes), max_workers)
+        logger.info(
+            "FinGenius 并行分析 %d 只股票 (max_workers=%d, timeout=%ds)",
+            len(stock_codes), max_workers, worker_timeout,
+        )
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
             future_to_code = {
@@ -290,13 +297,17 @@ class StockSageOrchestrator:
             for future in concurrent.futures.as_completed(future_to_code):
                 code = future_to_code[future]
                 try:
-                    orig_code, result = future.result()
+                    orig_code, result = future.result(timeout=worker_timeout)
                     if result and "error" not in result:
                         results[orig_code] = result
                         logger.info("FinGenius %s 分析完成", orig_code)
                     else:
                         error_msg = result.get("error", "unknown") if result else "no result"
                         logger.warning("FinGenius %s 分析失败: %s", orig_code, error_msg)
+                except concurrent.futures.TimeoutError:
+                    logger.error(
+                        "FinGenius %s 超时 (%d 秒)，跳过该股票", code, worker_timeout,
+                    )
                 except Exception as e:
                     logger.error("FinGenius %s 分析异常: %s", code, e, exc_info=True)
 

@@ -28,7 +28,7 @@ on:
 
 concurrency:
   group: stocksage-analysis
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   analyze:
@@ -36,6 +36,14 @@ jobs:
     timeout-minutes: 90
 
     steps:
+      - name: 监控工作流资源
+        uses: catchpoint/workflow-telemetry-action@v2
+        with:
+          comment_on_pr: false
+          metric_frequency: 5
+          proc_trace_sys_enable: true
+          proc_trace_chart_show: true
+
       - name: 随机延迟（避免固定时间访问）
         run: sleep $((RANDOM % 60))
 
