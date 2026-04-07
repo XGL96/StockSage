@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
+import os
 import re
 import sys
 import time
@@ -58,6 +59,11 @@ def _fg_worker_process(args: tuple) -> tuple[str, dict[str, Any] | None]:
     if dsa_root in sys.path:
         sys.path.remove(dsa_root)
     sys.path.insert(0, fg_root)
+
+    # Pre-create FinGenius cache directory to avoid race condition:
+    # DataCacheManager (module-level singleton) calls os.makedirs('cache')
+    # without exist_ok, so concurrent workers hit FileExistsError.
+    os.makedirs("cache", exist_ok=True)
 
     try:
         fg_path = project_root / "FinGenius" / "main.py"
