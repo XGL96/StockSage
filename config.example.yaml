@@ -22,11 +22,13 @@ stocks:
 # ============================================================
 llm:
   # 主模型（用于 daily_stock_analysis）
-  # 支持: gemini / openai / deepseek / anthropic / aihubmix / litellm
+  # 支持: openai / gemini / deepseek / anthropic / litellm
+  # provider="openai" 覆盖所有 OpenAI 协议端点（真 OpenAI / NVIDIA NIM / AiHubMix /
+  # OpenRouter / 自建 vLLM 等），用 base_url 区分具体服务器；model 填上游服务器真实模型名
   provider: "gemini"
   model: "gemini-2.5-flash"
   api_key: ""
-  base_url: ""                     # OpenAI 兼容 API 时需要填写
+  base_url: ""                     # OpenAI 协议端点需要填（真 OpenAI 可留空）
   temperature: ""                  # LLM 温度参数（可选）
   vision_model: ""                 # 视觉模型（可选）
   fallback_models: ""              # 备选模型（逗号分隔，LiteLLM 模式下生效）

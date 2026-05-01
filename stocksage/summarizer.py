@@ -141,13 +141,16 @@ class ResultSummarizer:
         )
 
         try:
+            # temperature=0.0 is a sensible default for a summarization task, but gets
+            # overridden by the user's config (via self._llm_params) — required for
+            # reasoning models like gpt-5 that reject non-1 temperatures.
+            call_params = {"temperature": 0.0, **self._llm_params}
             async with self._semaphore:
                 response = await litellm.acompletion(
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=500,
-                    temperature=0.0,
                     timeout=60,
-                    **self._llm_params,
+                    **call_params,
                 )
             return (response.choices[0].message.content or "").strip()
         except Exception as e:
@@ -221,12 +224,13 @@ class ResultSummarizer:
             raw_output=raw_output,
         )
 
+        # 0.0 default overridden by user's config (required for e.g. gpt-5 which rejects non-1).
+        call_params = {"temperature": 0.0, **self._llm_params}
         async with self._semaphore:
             response = await litellm.acompletion(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=200,
-                temperature=0.0,
                 timeout=60,
-                **self._llm_params,
+                **call_params,
             )
         return (response.choices[0].message.content or "").strip()

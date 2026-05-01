@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from stocksage.config_bridge import ConfigBridge
+from stocksage.config_bridge import ConfigBridge, _build_litellm_model
 
 
 class TestParseYaml:
@@ -71,34 +71,126 @@ class TestWriteFinGeniusToml:
         assert 'api_key = "FAKE_FG_KEY_FOR_TESTING"' in text
 
 
-class TestGetLitellmParams:
+class TestBuildLitellmModel:
+    """Direct table-driven tests of the pure prefix rule.
+
+    This covers every branch of _build_litellm_model. Higher-level tests assume
+    the pure rule is correct and only verify YAML integration + env-var side effects.
+    """
+
     @pytest.mark.parametrize(
-        "provider, model, api_key, base_url, expected_model, expect_api_base",
+        "provider, model, expected",
         [
-            ("openai", "gpt-4o", "sk-test", "https://api.openai.com/v1", "gpt-4o", True),
-            ("nvidia", "meta/llama-3.1-70b", "nvapi-test", "https://integrate.api.nvidia.com/v1", "openai/meta/llama-3.1-70b", True),
-            ("gemini", "gemini-2.0-flash", "gemini-key", "", "gemini/gemini-2.0-flash", False),
+            # openai (OpenAI-protocol, covers real OpenAI / NVIDIA NIM / AiHubMix / any
+            # OpenAI-compatible proxy — all route via "openai/" prefix, differ only by base_url)
+            ("openai",    "gpt-4o",                  "openai/gpt-4o"),              # bare OpenAI model
+            ("openai",    "openai/openai/gpt-5.5",   "openai/openai/openai/gpt-5.5"),  # NVIDIA gpt-5.5
+            ("openai",    "nvidia/qwen/qwen3-80b",   "openai/nvidia/qwen/qwen3-80b"),  # NVIDIA Qwen
+            # Other providers with their own routing prefix
+            ("gemini",    "gemini-2.0-flash",        "gemini/gemini-2.0-flash"),
+            ("deepseek",  "deepseek-chat",           "deepseek/deepseek-chat"),
+            ("anthropic", "claude-3-5-sonnet",       "anthropic/claude-3-5-sonnet"),
+            ("litellm",   "custom-alias",            "custom-alias"),               # pass-through
+            # Edge cases
+            ("azure",     "gpt-35-turbo",            "gpt-35-turbo"),               # unknown -> bare
+            ("",          "gpt-4",                   "gpt-4"),                      # no provider -> bare
+            ("openai",    "",                        ""),                           # empty model
+            ("OpenAI",    "foo",                     "openai/foo"),                 # case-insensitive
         ],
     )
-    def test_provider_model_mapping(
-        self, tmp_path: Path,
-        provider: str, model: str, api_key: str, base_url: str,
-        expected_model: str, expect_api_base: bool,
-    ) -> None:
-        content = f"""\
-stocks:
-  list: ["600519"]
-llm:
-  provider: "{provider}"
-  model: "{model}"
-  api_key: "{api_key}"
-  base_url: "{base_url}"
-"""
+    def test_rule(self, provider: str, model: str, expected: str) -> None:
+        assert _build_litellm_model(provider, model) == expected
+
+
+class TestGetLitellmParams:
+    """Integration: verify YAML -> params dict assembly. Prefix rule covered above."""
+
+    def test_params_dict_assembly(self, tmp_path: Path) -> None:
+        """NVIDIA-hosted gpt-5.5 via the unified openai provider exercises all four
+        params: model (with regression prefix), api_key, api_base, temperature."""
         cfg = tmp_path / "config.yaml"
-        cfg.write_text(content, encoding="utf-8")
+        cfg.write_text(
+            'stocks:\n  list: ["600519"]\n'
+            'llm:\n  provider: "openai"\n  model: "openai/openai/gpt-5.5"\n'
+            '  api_key: "nvapi-x"\n  base_url: "https://inference-api.nvidia.com/v1"\n'
+            '  temperature: 1\n',
+            encoding="utf-8",
+        )
         params = ConfigBridge(cfg).get_litellm_params()
-        assert params["model"] == expected_model
-        assert ("api_base" in params) == expect_api_base
+        assert params == {
+            "model": "openai/openai/openai/gpt-5.5",
+            "api_key": "nvapi-x",
+            "api_base": "https://inference-api.nvidia.com/v1",
+            "temperature": 1.0,
+        }
+
+    def test_api_base_gated_for_non_openai_protocol_providers(self, tmp_path: Path) -> None:
+        """A stale base_url on e.g. anthropic must not leak into api_base (would mis-route)."""
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            'stocks:\n  list: ["600519"]\n'
+            'llm:\n  provider: "anthropic"\n  model: "claude-3-5-sonnet"\n'
+            '  api_key: "ak"\n  base_url: "https://stale-openai-endpoint.example/v1"\n',
+            encoding="utf-8",
+        )
+        params = ConfigBridge(cfg).get_litellm_params()
+        assert "api_base" not in params
+
+
+class TestApplyEnvVarsLlm:
+    """Integration: verify YAML -> env var side effects for LLM config."""
+
+    def test_nvidia_hosted_model_emits_routing_prefix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Regression: LITELLM_MODEL, OPENAI_API_KEY, OPENAI_BASE_URL all set correctly
+        for an OpenAI-protocol endpoint (here NVIDIA NIM serving gpt-5.5) — the case
+        that triggered the original bug."""
+        for key in ("LITELLM_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL"):
+            monkeypatch.delenv(key, raising=False)
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            'stocks:\n  list: ["600519"]\n'
+            'llm:\n  provider: "openai"\n  model: "openai/openai/gpt-5.5"\n'
+            '  api_key: "nvapi-x"\n  base_url: "https://inference-api.nvidia.com/v1"\n',
+            encoding="utf-8",
+        )
+        ConfigBridge(cfg).apply_env_vars()
+        assert os.environ["LITELLM_MODEL"] == "openai/openai/openai/gpt-5.5"
+        assert os.environ["OPENAI_API_KEY"] == "nvapi-x"
+        assert os.environ["OPENAI_BASE_URL"] == "https://inference-api.nvidia.com/v1"
+
+    def test_unknown_provider_warns_and_skips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.delenv("LITELLM_MODEL", raising=False)
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            'stocks:\n  list: ["600519"]\n'
+            'llm:\n  provider: "azure"\n  model: "foo"\n  api_key: "k"\n',
+            encoding="utf-8",
+        )
+        with caplog.at_level("WARNING", logger="stocksage.config_bridge"):
+            ConfigBridge(cfg).apply_env_vars()
+        assert any("Unknown LLM provider 'azure'" in r.message for r in caplog.records)
+
+    def test_primary_wins_over_extras_sharing_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When an extra shares an env var with the primary (e.g. a secondary openai
+        key under a different config path), primary's value must be preserved."""
+        for key in ("OPENAI_API_KEY", "LITELLM_MODEL"):
+            monkeypatch.delenv(key, raising=False)
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            'stocks:\n  list: ["600519"]\n'
+            'llm:\n  provider: "gemini"\n  model: "gemini-2.0-flash"\n  api_key: "primary-gemini"\n'
+            '  openai:\n    api_key: "extra-openai"\n',
+            encoding="utf-8",
+        )
+        ConfigBridge(cfg).apply_env_vars()
+        assert os.environ["GEMINI_API_KEY"] == "primary-gemini"
+        assert os.environ["OPENAI_API_KEY"] == "extra-openai"
 
 
 class TestHelpers:

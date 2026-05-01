@@ -15,11 +15,70 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+
+class _ProviderSpec(NamedTuple):
+    """Per-provider LLM routing contract.
+
+    Attributes:
+        litellm_prefix: Routing prefix LiteLLM uses to select the provider SDK. LiteLLM
+            strips this prefix from the model string before forwarding to the upstream API,
+            so it must be prepended UNCONDITIONALLY — never "only if missing". Empty string
+            means pass-through (user-supplied or provider auto-detects from bare model name).
+        api_key_env: Env var name DSA reads for the API key.
+        model_env: Env var name DSA reads for the raw model name (used for non-litellm paths
+            like the image extractor). None if the provider has no such env.
+        base_url_env: Env var name DSA reads for a custom base URL. None if provider has none.
+    """
+
+    litellm_prefix: str
+    api_key_env: str | None
+    model_env: str | None
+    base_url_env: str | None
+
+
+# Provider registry. Adding a new provider = one row here; both get_litellm_params and
+# apply_env_vars consume this table.
+#
+# Convention: the user's "model" field is ALWAYS the raw model name the upstream server
+# expects (e.g. "gpt-4o" at api.openai.com, or "openai/openai/gpt-5.5" at NVIDIA NIM).
+# The bridge unconditionally prepends the provider's LiteLLM routing prefix — LiteLLM
+# strips it back off before forwarding to the upstream API. Users must NOT pre-encode the
+# routing prefix themselves.
+_PROVIDERS: dict[str, _ProviderSpec] = {
+    # OpenAI protocol — covers real OpenAI, NVIDIA NIM, AiHubMix, any vLLM/LocalAI/OpenRouter
+    # compatible endpoint. The specific server is selected by base_url, not by a distinct
+    # provider name. Previously had separate "nvidia" / "aihubmix" rows; those are gone.
+    "openai":    _ProviderSpec("openai/",    "OPENAI_API_KEY",    "OPENAI_MODEL",    "OPENAI_BASE_URL"),
+    "gemini":    _ProviderSpec("gemini/",    "GEMINI_API_KEY",    "GEMINI_MODEL",    None),
+    "deepseek":  _ProviderSpec("deepseek/",  "DEEPSEEK_API_KEY",  None,              None),
+    "anthropic": _ProviderSpec("anthropic/", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", None),
+    "litellm":   _ProviderSpec("",           "LITELLM_API_KEY",   None,              None),
+}
+
+
+def _build_litellm_model(provider: str, model: str) -> str:
+    """Return the model string to hand LiteLLM for the given provider.
+
+    Always prepends the provider's routing prefix — no "already prefixed, skip" heuristic.
+    That heuristic was the source of a silent breakage with NVIDIA models whose raw
+    upstream names legitimately start with "openai/" (e.g. "openai/openai/gpt-5.5").
+    """
+    if not model:
+        return ""
+    spec = _PROVIDERS.get(provider.lower())
+    if spec is None:
+        if provider:
+            logger.warning("Unknown LLM provider '%s' — model passed to LiteLLM unchanged", provider)
+        return model
+    if not spec.litellm_prefix:
+        return model
+    return f"{spec.litellm_prefix}{model}"
 
 
 class ConfigBridge:
@@ -63,36 +122,19 @@ class ConfigBridge:
         model = llm.get("model", "")
         api_key = llm.get("api_key", "")
         base_url = llm.get("base_url", "")
+        temperature = llm.get("temperature")
 
-        params: dict[str, Any] = {}
-
-        if provider == "nvidia":
-            params["model"] = f"openai/{model}" if not model.startswith("openai/") else model
-            params["api_key"] = api_key
+        params: dict[str, Any] = {
+            "model": _build_litellm_model(provider, model),
+            "api_key": api_key,
+        }
+        if temperature is not None:
+            params["temperature"] = float(temperature)
+        # Only forward api_base for providers that declare a base_url_env — otherwise a
+        # stale base_url left over from an old provider config can silently mis-route.
+        spec = _PROVIDERS.get(provider)
+        if base_url and spec is not None and spec.base_url_env:
             params["api_base"] = base_url
-        elif provider == "openai":
-            params["model"] = model
-            params["api_key"] = api_key
-            if base_url:
-                params["api_base"] = base_url
-        elif provider == "gemini":
-            params["model"] = f"gemini/{model}" if not model.startswith("gemini/") else model
-            params["api_key"] = api_key
-        elif provider == "deepseek":
-            params["model"] = f"deepseek/{model}" if not model.startswith("deepseek/") else model
-            params["api_key"] = api_key
-        elif provider == "anthropic":
-            params["model"] = model
-            params["api_key"] = api_key
-        elif provider == "litellm":
-            params["model"] = model
-            params["api_key"] = api_key
-        else:
-            params["model"] = model
-            params["api_key"] = api_key
-            if base_url:
-                params["api_base"] = base_url
-
         return params
 
     def get_wxpusher_config(self) -> dict[str, Any]:
@@ -143,53 +185,38 @@ class ConfigBridge:
         api_key = llm.get("api_key", "")
         base_url = llm.get("base_url", "")
 
-        if provider == "gemini":
-            self._set_if(env, "GEMINI_API_KEY", api_key)
-            self._set_if(env, "GEMINI_MODEL", model)
-        elif provider == "nvidia":
-            # NVIDIA API 使用 OpenAI 兼容协议，需要通过 LITELLM_MODEL
-            # 设置 openai/ 前缀让 LiteLLM 正确路由
-            self._set_if(env, "OPENAI_API_KEY", api_key)
-            self._set_if(env, "OPENAI_BASE_URL", base_url)
+        spec = _PROVIDERS.get(provider)
+        if spec is None:
+            if provider:
+                logger.warning("Unknown LLM provider '%s' — bridge will not configure env vars", provider)
+        else:
+            if spec.api_key_env:
+                self._set_if(env, spec.api_key_env, api_key)
+            if spec.model_env:
+                self._set_if(env, spec.model_env, model)
+            if spec.base_url_env:
+                self._set_if(env, spec.base_url_env, base_url)
+            # Always emit LITELLM_MODEL when a model is configured. DSA also has a fallback
+            # inference path with the same "already-prefixed skip" bug we are fixing here;
+            # setting LITELLM_MODEL explicitly keeps DSA off that path.
             if model:
-                litellm_model = f"openai/{model}" if not model.startswith("openai/") else model
-                env["LITELLM_MODEL"] = litellm_model
-        elif provider == "openai":
-            self._set_if(env, "OPENAI_API_KEY", api_key)
-            self._set_if(env, "OPENAI_MODEL", model)
-            self._set_if(env, "OPENAI_BASE_URL", base_url)
-        elif provider == "deepseek":
-            self._set_if(env, "DEEPSEEK_API_KEY", api_key)
-        elif provider == "anthropic":
-            self._set_if(env, "ANTHROPIC_API_KEY", api_key)
-            self._set_if(env, "ANTHROPIC_MODEL", model)
-        elif provider == "aihubmix":
-            self._set_if(env, "AIHUBMIX_KEY", api_key)
-        elif provider == "litellm":
-            self._set_if(env, "LITELLM_API_KEY", api_key)
-            self._set_if(env, "LITELLM_MODEL", model)
-            self._set_if(env, "LITELLM_CONFIG", llm.get("config_path", ""))
+                env["LITELLM_MODEL"] = _build_litellm_model(provider, model)
+            if provider == "litellm":
+                self._set_if(env, "LITELLM_CONFIG", llm.get("config_path", ""))
 
-        # Additional LLM keys (user may configure multiple providers)
-        for extra_provider in ("gemini", "openai", "deepseek", "anthropic", "aihubmix"):
+        # Additional LLM keys: user may configure non-primary providers alongside the
+        # primary (e.g. primary gemini + a fallback openai key). Primary takes precedence
+        # if an extra happens to share an env var name.
+        for extra_provider, extra_spec in _PROVIDERS.items():
+            if extra_provider == provider:
+                continue
             extra = llm.get(extra_provider, {})
-            if isinstance(extra, dict) and extra.get("api_key"):
-                key_map = {
-                    "gemini": "GEMINI_API_KEY",
-                    "openai": "OPENAI_API_KEY",
-                    "deepseek": "DEEPSEEK_API_KEY",
-                    "anthropic": "ANTHROPIC_API_KEY",
-                    "aihubmix": "AIHUBMIX_KEY",
-                }
-                self._set_if(env, key_map[extra_provider], extra["api_key"])
-                if extra.get("model"):
-                    model_map = {
-                        "gemini": "GEMINI_MODEL",
-                        "openai": "OPENAI_MODEL",
-                        "anthropic": "ANTHROPIC_MODEL",
-                    }
-                    if extra_provider in model_map:
-                        self._set_if(env, model_map[extra_provider], extra["model"])
+            if not isinstance(extra, dict):
+                continue
+            if extra.get("api_key") and extra_spec.api_key_env and extra_spec.api_key_env not in env:
+                self._set_if(env, extra_spec.api_key_env, extra["api_key"])
+            if extra.get("model") and extra_spec.model_env and extra_spec.model_env not in env:
+                self._set_if(env, extra_spec.model_env, extra["model"])
 
         # --- 数据源 ---
         ds = self._cfg.get("data_sources", {})
@@ -333,13 +360,10 @@ class ConfigBridge:
         if not fg_llm:
             llm = self._cfg.get("llm", {})
             provider = llm.get("provider", "openai").lower()
-            api_type = "openai"
-            if provider in ("gemini", "anthropic", "deepseek", "aihubmix"):
-                api_type = "openai"  # These all use OpenAI-compatible API
-            elif provider == "ollama":
-                api_type = "ollama"
-            elif provider == "azure":
-                api_type = "azure"
+            # FinGenius supports three api_types. Everything that speaks OpenAI HTTP
+            # protocol (real OpenAI, NVIDIA, AiHubMix, DeepSeek, Gemini-via-proxy, ...)
+            # uses "openai" — FG picks the server by base_url, same as our bridge.
+            api_type = {"ollama": "ollama", "azure": "azure"}.get(provider, "openai")
 
             fg_llm = {
                 "api_type": api_type,
