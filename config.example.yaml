@@ -73,6 +73,7 @@ data_sources:
 # 搜索引擎
 # ============================================================
 search:
+  anspire_api_keys: ""             # Anspire Search API Keys（DSA v3.14+）
   bocha_api_keys: ""               # Bocha API Keys
   tavily_api_keys: ""              # Tavily API Keys
   serpapi_api_keys: ""             # SerpAPI Keys

@@ -229,6 +229,7 @@ class ConfigBridge:
 
         # --- 搜索引擎 ---
         search = self._cfg.get("search", {})
+        self._set_if(env, "ANSPIRE_API_KEYS", search.get("anspire_api_keys"))
         self._set_if(env, "BOCHA_API_KEYS", search.get("bocha_api_keys"))
         self._set_if(env, "TAVILY_API_KEYS", search.get("tavily_api_keys"))
         self._set_if(env, "SERPAPI_API_KEYS", search.get("serpapi_api_keys"))

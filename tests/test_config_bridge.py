@@ -174,6 +174,21 @@ class TestApplyEnvVarsLlm:
             ConfigBridge(cfg).apply_env_vars()
         assert any("Unknown LLM provider 'azure'" in r.message for r in caplog.records)
 
+    def test_anspire_api_keys_forwarded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Added in DSA v3.14 — bridge must forward the new search provider's keys."""
+        monkeypatch.delenv("ANSPIRE_API_KEYS", raising=False)
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text(
+            'stocks:\n  list: ["600519"]\n'
+            'llm:\n  provider: "openai"\n  model: "gpt-4o"\n  api_key: "sk"\n'
+            'search:\n  anspire_api_keys: "asp-key-1,asp-key-2"\n',
+            encoding="utf-8",
+        )
+        ConfigBridge(cfg).apply_env_vars()
+        assert os.environ["ANSPIRE_API_KEYS"] == "asp-key-1,asp-key-2"
+
     def test_primary_wins_over_extras_sharing_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
